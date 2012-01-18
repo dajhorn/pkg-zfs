@@ -1,5 +1,5 @@
 pkglibexecdir = $(libexecdir)/@PACKAGE@/zpool-layout
-dist_pkglibexec_SCRIPTS = \
+nodist_pkglibexec_SCRIPTS = \
 	$(top_srcdir)/scripts/zpool-layout/dragon.ddn.conf \
 	$(top_srcdir)/scripts/zpool-layout/dragon.llnl.conf
 
