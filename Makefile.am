@@ -5,7 +5,7 @@ include $(top_srcdir)/config/arch.am
 
 SUBDIRS = include
 if CONFIG_USER
-SUBDIRS += dracut udev etc man scripts lib cmd
+SUBDIRS += udev etc man scripts lib cmd
 endif
 if CONFIG_KERNEL
 SUBDIRS += module
