@@ -12,8 +12,7 @@ endif
 SUBDIRS = $(USER_DIR) $(KERNEL_DIR) include
 
 AUTOMAKE_OPTIONS = foreign
-EXTRA_DIST  = autogen.sh zfs.spec.in zfs-modules.spec.in
-EXTRA_DIST += config/config.awk config/rpm.am config/deb.am config/tgz.am
+EXTRA_DIST  = config/config.awk config/rpm.am config/deb.am config/tgz.am
 EXTRA_DIST += META DISCLAIMER COPYRIGHT README.markdown
 EXTRA_DIST += OPENSOLARIS.LICENSE ZFS.RELEASE
 EXTRA_DIST += dkms.postinst copy-builtin

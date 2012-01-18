@@ -1,1 +1,1 @@
-dist_udev_SCRIPTS = zpool_id
+nodist_udev_SCRIPTS = zpool_id

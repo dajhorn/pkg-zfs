@@ -1,7 +1,7 @@
 SUBDIRS = zpool-config zpool-layout zpios-test zpios-profile
 
 pkglibexecdir = $(libexecdir)/@PACKAGE@
-dist_pkglibexec_SCRIPTS = \
+nodist_pkglibexec_SCRIPTS = \
 	$(top_builddir)/scripts/common.sh \
 	$(top_srcdir)/scripts/zconfig.sh \
 	$(top_srcdir)/scripts/zfault.sh \
