@@ -1,5 +1,5 @@
 pkglibexecdir = $(libexecdir)/@PACKAGE@/zpios-profile
-dist_pkglibexec_SCRIPTS = \
+nodist_pkglibexec_SCRIPTS = \
 	$(top_srcdir)/scripts/zpios-profile/zpios-profile-disk.sh \
 	$(top_srcdir)/scripts/zpios-profile/zpios-profile-pids.sh \
 	$(top_srcdir)/scripts/zpios-profile/zpios-profile-post.sh \

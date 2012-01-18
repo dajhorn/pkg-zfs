@@ -1,5 +1,5 @@
 pkglibexecdir = $(libexecdir)/@PACKAGE@/zpool-config
-dist_pkglibexec_SCRIPTS = \
+nodist_pkglibexec_SCRIPTS = \
 	$(top_srcdir)/scripts/zpool-config/dm0-raid0.sh \
 	$(top_srcdir)/scripts/zpool-config/file-raid0.sh \
 	$(top_srcdir)/scripts/zpool-config/file-raid10.sh \

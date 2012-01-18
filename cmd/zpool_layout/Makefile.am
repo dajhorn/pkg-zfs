@@ -1,1 +1,1 @@
-dist_bin_SCRIPTS = zpool_layout
+nodist_bin_SCRIPTS = zpool_layout
