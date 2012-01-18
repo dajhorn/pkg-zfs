@@ -1,5 +1,5 @@
 pkglibexecdir = $(libexecdir)/@PACKAGE@/zpios-test
-dist_pkglibexec_SCRIPTS = \
+nodist_pkglibexec_SCRIPTS = \
 	$(top_srcdir)/scripts/zpios-test/16th-8192rc-4rs-1cs-4off.sh \
 	$(top_srcdir)/scripts/zpios-test/1th-16rc-4rs-1cs-4off.sh \
 	$(top_srcdir)/scripts/zpios-test/1x256th-65536rc-4rs-1cs-4off.sh \
