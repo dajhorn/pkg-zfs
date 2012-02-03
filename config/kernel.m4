@@ -314,9 +314,10 @@ AC_DEFUN([ZFS_AC_SPL], [
 		], [
 			AC_MSG_RESULT([Not found])
 			AC_MSG_ERROR([
-	*** Please make sure the spl devel package for your distribution
-	*** is installed then try again.  If that fails you can specify the
-	*** location of the spl source with the '--with-spl=PATH' option.])
+	*** ZFS depends on the SPL kernel module, which is not found.
+	*** DKMS should retry zfs-dkms momentarily after building spl-dkms.
+	*** If this error message persists, or if you are running DKMS manually,
+	*** then run 'apt-get install --reinstall spl-dkms' and try again.])
 		])
 	], [
 		AS_IF([test "$splsrc" = "NONE"], [
