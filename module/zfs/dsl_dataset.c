@@ -2373,8 +2373,7 @@ dsl_snapshot_rename_one(const char *name, void *arg)
 		return (err == ENOENT ? 0 : err);
 	}
 
-/* XXX: Ignore for SPL version until mounting the FS is supported */
-#if defined(_KERNEL) && !defined(HAVE_SPL)
+#ifdef _KERNEL
 	/*
 	 * For all filesystems undergoing rename, we'll need to unmount it.
 	 */
@@ -3290,6 +3289,8 @@ dsl_dataset_check_quota(dsl_dataset_t *ds, boolean_t check_quota,
 			error = ERESTART;
 		else
 			error = EDQUOT;
+
+		DMU_TX_STAT_BUMP(dmu_tx_quota);
 	}
 	mutex_exit(&ds->ds_lock);
 

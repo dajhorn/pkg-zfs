@@ -60,7 +60,7 @@ struct dmu_tx {
 	list_t tx_callbacks; /* list of dmu_tx_callback_t on this dmu_tx */
 	uint8_t tx_anyobj;
 	int tx_err;
-#ifdef ZFS_DEBUG
+#ifdef DEBUG_DMU_TX
 	uint64_t tx_space_towrite;
 	uint64_t tx_space_tofree;
 	uint64_t tx_space_tooverwrite;
@@ -91,7 +91,7 @@ typedef struct dmu_tx_hold {
 	uint64_t txh_space_tounref;
 	uint64_t txh_memory_tohold;
 	uint64_t txh_fudge;
-#ifdef ZFS_DEBUG
+#ifdef DEBUG_DMU_TX
 	enum dmu_tx_hold_type txh_type;
 	uint64_t txh_arg1;
 	uint64_t txh_arg2;
@@ -103,6 +103,31 @@ typedef struct dmu_tx_callback {
 	dmu_tx_callback_func_t	*dcb_func;   /* caller function pointer */
 	void			*dcb_data;   /* caller private data */
 } dmu_tx_callback_t;
+
+/*
+ * Used for dmu tx kstat.
+ */
+typedef struct dmu_tx_stats {
+	kstat_named_t dmu_tx_assigned;
+	kstat_named_t dmu_tx_delay;
+	kstat_named_t dmu_tx_error;
+	kstat_named_t dmu_tx_suspended;
+	kstat_named_t dmu_tx_group;
+	kstat_named_t dmu_tx_how;
+	kstat_named_t dmu_tx_memory_reserve;
+	kstat_named_t dmu_tx_memory_reclaim;
+	kstat_named_t dmu_tx_memory_inflight;
+	kstat_named_t dmu_tx_dirty_throttle;
+	kstat_named_t dmu_tx_write_limit;
+	kstat_named_t dmu_tx_quota;
+} dmu_tx_stats_t;
+
+extern dmu_tx_stats_t dmu_tx_stats;
+
+#define DMU_TX_STAT_INCR(stat, val) \
+    atomic_add_64(&dmu_tx_stats.stat.value.ui64, (val));
+#define DMU_TX_STAT_BUMP(stat) \
+    DMU_TX_STAT_INCR(stat, 1);
 
 /*
  * These routines are defined in dmu.h, and are called by the user.
@@ -135,11 +160,14 @@ void dmu_tx_dirty_buf(dmu_tx_t *tx, struct dmu_buf_impl *db);
 int dmu_tx_holds(dmu_tx_t *tx, uint64_t object);
 void dmu_tx_hold_space(dmu_tx_t *tx, uint64_t space);
 
-#ifdef ZFS_DEBUG
+#ifdef DEBUG_DMU_TX
 #define	DMU_TX_DIRTY_BUF(tx, db)	dmu_tx_dirty_buf(tx, db)
 #else
 #define	DMU_TX_DIRTY_BUF(tx, db)
 #endif
+
+void dmu_tx_init(void);
+void dmu_tx_fini(void);
 
 #ifdef	__cplusplus
 }

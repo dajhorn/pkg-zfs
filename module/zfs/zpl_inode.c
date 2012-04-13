@@ -25,6 +25,7 @@
 
 #include <sys/zfs_vfsops.h>
 #include <sys/zfs_vnops.h>
+#include <sys/zfs_znode.h>
 #include <sys/vfs.h>
 #include <sys/zpl.h>
 
@@ -51,7 +52,7 @@ zpl_lookup(struct inode *dir, struct dentry *dentry, struct nameidata *nd)
 	return d_splice_alias(ip, dentry);
 }
 
-static void
+void
 zpl_vap_init(vattr_t *vap, struct inode *dir, struct dentry *dentry,
     mode_t mode, cred_t *cr)
 {
@@ -171,7 +172,19 @@ zpl_rmdir(struct inode * dir, struct dentry *dentry)
 static int
 zpl_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat)
 {
+	boolean_t issnap = ITOZSB(dentry->d_inode)->z_issnap;
 	int error;
+
+	/*
+	 * Ensure MNT_SHRINKABLE is set on snapshots to ensure they are
+	 * unmounted automatically with the parent file system.  This
+	 * is done on the first getattr because it's not easy to get the
+	 * vfsmount structure at mount time.  This call path is explicitly
+	 * marked unlikely to avoid any performance impact.  FWIW, ext4
+	 * resorts to a similar trick for sysadmin convenience.
+	 */
+	if (unlikely(issnap && !(mnt->mnt_flags & MNT_SHRINKABLE)))
+		mnt->mnt_flags |= MNT_SHRINKABLE;
 
 	error = -zfs_getattr_fast(dentry->d_inode, stat);
 	ASSERT3S(error, <=, 0);
@@ -315,6 +328,42 @@ out:
 	return (error);
 }
 
+static void
+zpl_truncate_range(struct inode* ip, loff_t start, loff_t end)
+{
+	cred_t *cr = CRED();
+	flock64_t bf;
+
+	ASSERT3S(start, <=, end);
+
+	/*
+	 * zfs_freesp() will interpret (len == 0) as meaning "truncate until
+	 * the end of the file". We don't want that.
+	 */
+	if (start == end)
+		return;
+
+	crhold(cr);
+
+	bf.l_type = F_WRLCK;
+	bf.l_whence = 0;
+	bf.l_start = start;
+	bf.l_len = end - start;
+	bf.l_pid = 0;
+	zfs_space(ip, F_FREESP, &bf, FWRITE, start, cr);
+
+	crfree(cr);
+}
+
+#ifdef HAVE_INODE_FALLOCATE
+static long
+zpl_fallocate(struct inode *ip, int mode, loff_t offset, loff_t len)
+{
+	return zpl_fallocate_common(ip, mode, offset, len);
+}
+#endif /* HAVE_INODE_FALLOCATE */
+
+
 const struct inode_operations zpl_inode_operations = {
 	.create		= zpl_create,
 	.link		= zpl_link,
@@ -330,6 +379,10 @@ const struct inode_operations zpl_inode_operations = {
 	.getxattr	= generic_getxattr,
 	.removexattr	= generic_removexattr,
 	.listxattr	= zpl_xattr_list,
+	.truncate_range = zpl_truncate_range,
+#ifdef HAVE_INODE_FALLOCATE
+	.fallocate	= zpl_fallocate,
+#endif /* HAVE_INODE_FALLOCATE */
 };
 
 const struct inode_operations zpl_dir_inode_operations = {

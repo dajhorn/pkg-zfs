@@ -30,8 +30,12 @@
 #include <linux/xattr_compat.h>
 #include <linux/exportfs.h>
 #include <linux/writeback.h>
+#include <linux/falloc.h>
 
 /* zpl_inode.c */
+extern void zpl_vap_init(vattr_t *vap, struct inode *dir,
+    struct dentry *dentry, mode_t mode, cred_t *cr);
+
 extern const struct inode_operations zpl_inode_operations;
 extern const struct inode_operations zpl_dir_inode_operations;
 extern const struct inode_operations zpl_symlink_inode_operations;
@@ -42,6 +46,8 @@ extern ssize_t zpl_read_common(struct inode *ip, const char *buf,
     size_t len, loff_t pos, uio_seg_t segment, int flags, cred_t *cr);
 extern ssize_t zpl_write_common(struct inode *ip, const char *buf,
     size_t len, loff_t pos, uio_seg_t segment, int flags, cred_t *cr);
+extern long zpl_fallocate_common(struct inode *ip, int mode,
+    loff_t offset, loff_t len);
 
 extern const struct address_space_operations zpl_address_space_operations;
 extern const struct file_operations zpl_file_operations;
@@ -65,5 +71,20 @@ extern int zpl_xattr_security_init(struct inode *ip, struct inode *dip,
     const struct qstr *qstr);
 
 extern xattr_handler_t *zpl_xattr_handlers[];
+
+/* zpl_ctldir.c */
+extern const struct file_operations zpl_fops_root;
+extern const struct inode_operations zpl_ops_root;
+
+extern const struct file_operations zpl_fops_snapdir;
+extern const struct inode_operations zpl_ops_snapdir;
+#ifdef HAVE_AUTOMOUNT
+extern const struct dentry_operations zpl_dops_snapdirs;
+#else
+extern const struct inode_operations zpl_ops_snapdirs;
+#endif /* HAVE_AUTOMOUNT */
+
+extern const struct file_operations zpl_fops_shares;
+extern const struct inode_operations zpl_ops_shares;
 
 #endif	/* _SYS_ZPL_H */
