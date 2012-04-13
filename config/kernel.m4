@@ -347,7 +347,10 @@ AC_DEFUN([ZFS_AC_SPL], [
 		AC_MSG_RESULT([Not found])
 		AC_MSG_ERROR([
 	*** Cannot determine the version of the spl source.
-	*** Please prepare the spl source before running this script])
+	*** ZFS depends on the SPL kernel module, which is not yet ready.
+	*** DKMS should retry zfs-dkms momentarily after building spl-dkms.
+	*** If this error message persists, or if you are running DKMS manually,
+	*** then run 'apt-get install --reinstall spl-dkms' and try again.])
 	])
 
 	AC_MSG_RESULT([$splsrcver])
