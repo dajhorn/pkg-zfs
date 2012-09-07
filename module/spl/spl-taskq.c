@@ -50,8 +50,6 @@ task_alloc(taskq_t *tq, uint_t flags)
         SENTRY;
 
         ASSERT(tq);
-        ASSERT(flags & (TQ_SLEEP | TQ_NOSLEEP));               /* One set */
-        ASSERT(!((flags & TQ_SLEEP) && (flags & TQ_NOSLEEP))); /* Not both */
         ASSERT(spin_is_locked(&tq->tq_lock));
 retry:
         /* Acquire taskq_ent_t's from free list if available */
@@ -156,19 +154,22 @@ task_done(taskq_t *tq, taskq_ent_t *t)
  * monotonically increasing taskqid and added to the tail of the pending
  * list.  As worker threads become available the tasks are removed from
  * the head of the pending or priority list, giving preference to the
- * priority list.  The tasks are then added to the work list, preserving
- * the ordering by taskqid.  Finally, as tasks complete they are removed
- * from the work list.  This means that the pending and work lists are
- * always kept sorted by taskqid.  Thus the lowest outstanding
- * incomplete taskqid can be determined simply by checking the min
- * taskqid for each head item on the pending, priority, and work list.
- * This value is stored in tq->tq_lowest_id and only updated to the new
- * lowest id when the previous lowest id completes.  All taskqids lower
- * than tq->tq_lowest_id must have completed.  It is also possible
- * larger taskqid's have completed because they may be processed in
- * parallel by several worker threads.  However, this is not a problem
- * because the behavior of taskq_wait_id() is to block until all
- * previously submitted taskqid's have completed.
+ * priority list.  The tasks are then removed from their respective
+ * list, and the taskq_thread servicing the task is added to the active
+ * list, preserving the order using the serviced task's taskqid.
+ * Finally, as tasks complete the taskq_thread servicing the task is
+ * removed from the active list.  This means that the pending task and
+ * active taskq_thread lists are always kept sorted by taskqid. Thus the
+ * lowest outstanding incomplete taskqid can be determined simply by
+ * checking the min taskqid for each head item on the pending, priority,
+ * and active taskq_thread list. This value is stored in
+ * tq->tq_lowest_id and only updated to the new lowest id when the
+ * previous lowest id completes.  All taskqids lower than
+ * tq->tq_lowest_id must have completed.  It is also possible larger
+ * taskqid's have completed because they may be processed in parallel by
+ * several worker threads.  However, this is not a problem because the
+ * behavior of taskq_wait_id() is to block until all previously
+ * submitted taskqid's have completed.
  *
  * XXX: Taskqid_t wrapping is not handled.  However, taskqid_t's are
  * 64-bit values so even if a taskq is processing 2^24 (16,777,216)
@@ -439,10 +440,6 @@ taskq_thread(void *args)
 	tq = tqt->tqt_tq;
         current->flags |= PF_NOFREEZE;
 
-	/* Disable the direct memory reclaim path */
-	if (tq->tq_flags & TASKQ_NORECLAIM)
-		current->flags |= PF_MEMALLOC;
-
         sigfillset(&blocked);
         sigprocmask(SIG_BLOCK, &blocked, NULL);
         flush_signals(current);
@@ -555,7 +552,7 @@ __taskq_create(const char *name, int nthreads, pri_t pri,
 		nthreads = MAX((num_online_cpus() * nthreads) / 100, 1);
 	}
 
-        tq = kmem_alloc(sizeof(*tq), KM_SLEEP);
+        tq = kmem_alloc(sizeof(*tq), KM_PUSHPAGE);
         if (tq == NULL)
                 SRETURN(NULL);
 
@@ -581,12 +578,12 @@ __taskq_create(const char *name, int nthreads, pri_t pri,
 
         if (flags & TASKQ_PREPOPULATE)
                 for (i = 0; i < minalloc; i++)
-                        task_done(tq, task_alloc(tq, TQ_SLEEP | TQ_NEW));
+                        task_done(tq, task_alloc(tq, TQ_PUSHPAGE | TQ_NEW));
 
         spin_unlock_irqrestore(&tq->tq_lock, tq->tq_lock_flags);
 
 	for (i = 0; i < nthreads; i++) {
-		tqt = kmem_alloc(sizeof(*tqt), KM_SLEEP);
+		tqt = kmem_alloc(sizeof(*tqt), KM_PUSHPAGE);
 		INIT_LIST_HEAD(&tqt->tqt_thread_list);
 		INIT_LIST_HEAD(&tqt->tqt_active_list);
 		tqt->tqt_tq = tq;

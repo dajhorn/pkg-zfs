@@ -60,7 +60,7 @@ thread_generic_wrapper(void *arg)
 	func = tp->tp_func;
 	args = tp->tp_args;
 	set_current_state(tp->tp_state);
-	set_user_nice((kthread_t *)get_current(), PRIO_TO_NICE(tp->tp_pri));
+	set_user_nice((kthread_t *)current, PRIO_TO_NICE(tp->tp_pri));
 	kmem_free(tp->tp_name, tp->tp_name_size);
 	kmem_free(tp, sizeof(thread_priv_t));
 
@@ -98,14 +98,14 @@ __thread_create(caddr_t stk, size_t  stksize, thread_func_t func,
 	/* Variable stack size unsupported */
 	ASSERT(stk == NULL);
 
-	tp = kmem_alloc(sizeof(thread_priv_t), KM_SLEEP);
+	tp = kmem_alloc(sizeof(thread_priv_t), KM_PUSHPAGE);
 	if (tp == NULL)
 		SRETURN(NULL);
 
 	tp->tp_magic = TP_MAGIC;
 	tp->tp_name_size = strlen(name) + 1;
 
-	tp->tp_name = kmem_alloc(tp->tp_name_size, KM_SLEEP);
+	tp->tp_name = kmem_alloc(tp->tp_name_size, KM_PUSHPAGE);
         if (tp->tp_name == NULL) {
 		kmem_free(tp, sizeof(thread_priv_t));
 		SRETURN(NULL);

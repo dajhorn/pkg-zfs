@@ -49,7 +49,7 @@
 
 #define SS_DEBUG_SUBSYS SS_GENERIC
 
-char spl_version[16] = "SPL v" SPL_META_VERSION;
+char spl_version[32] = "SPL v" SPL_META_VERSION "-" SPL_META_RELEASE;
 EXPORT_SYMBOL(spl_version);
 
 unsigned long spl_hostid = HW_INVALID_HOSTID;
@@ -183,7 +183,7 @@ __udivdi3(uint64_t u, uint64_t v)
 			q0 = q0 - 1;		// too small by 1.
 		if ((u - q0 * v) >= v)
 			q0 = q0 + 1;		// Now q0 is correct.
-	
+
 		return q0;
 	}
 }
@@ -212,6 +212,62 @@ __umoddi3(uint64_t dividend, uint64_t divisor)
 }
 EXPORT_SYMBOL(__umoddi3);
 
+#if defined(__arm) || defined(__arm__)
+/*
+ * Implementation of 64-bit (un)signed division for 32-bit arm machines.
+ *
+ * Run-time ABI for the ARM Architecture (page 20).  A pair of (unsigned)
+ * long longs is returned in {{r0, r1}, {r2,r3}}, the quotient in {r0, r1},
+ * and the remainder in {r2, r3}.  The return type is specifically left
+ * set to 'void' to ensure the compiler does not overwrite these registers
+ * during the return.  All results are in registers as per ABI
+ */
+void
+__aeabi_uldivmod(uint64_t u, uint64_t v)
+{
+	uint64_t res;
+	uint64_t mod;
+
+	res = __udivdi3(u, v);
+	mod = __umoddi3(u, v);
+	{
+		register uint32_t r0 asm("r0") = (res & 0xFFFFFFFF);
+		register uint32_t r1 asm("r1") = (res >> 32);
+		register uint32_t r2 asm("r2") = (mod & 0xFFFFFFFF);
+		register uint32_t r3 asm("r3") = (mod >> 32);
+
+		asm volatile(""
+		    : "+r"(r0), "+r"(r1), "+r"(r2),"+r"(r3)  /* output */
+		    : "r"(r0), "r"(r1), "r"(r2), "r"(r3));   /* input */
+
+		return; /* r0; */
+	}
+}
+EXPORT_SYMBOL(__aeabi_uldivmod);
+
+void
+__aeabi_ldivmod(int64_t u, int64_t v)
+{
+	int64_t res;
+	uint64_t mod;
+
+	res =  __divdi3(u, v);
+	mod = __umoddi3(u, v);
+	{
+		register uint32_t r0 asm("r0") = (res & 0xFFFFFFFF);
+		register uint32_t r1 asm("r1") = (res >> 32);
+		register uint32_t r2 asm("r2") = (mod & 0xFFFFFFFF);
+		register uint32_t r3 asm("r3") = (mod >> 32);
+
+		asm volatile(""
+		    : "+r"(r0), "+r"(r1), "+r"(r2),"+r"(r3)  /* output */
+		    : "r"(r0), "r"(r1), "r"(r2), "r"(r3));   /* input */
+
+		return; /* r0; */
+	}
+}
+EXPORT_SYMBOL(__aeabi_ldivmod);
+#endif /* __arm || __arm__ */
 #endif /* BITS_PER_LONG */
 
 /* NOTE: The strtoxx behavior is solely based on my reading of the Solaris
@@ -430,8 +486,8 @@ hostid_read(void)
 	if (size < sizeof(HW_HOSTID_MASK)) {
 		printk(KERN_WARNING
 		       "SPL: Ignoring the %s file because it is %llu bytes; "
-		       "expecting %lu bytes instead.\n",
-		       spl_hostid_path, size, sizeof(HW_HOSTID_MASK));
+		       "expecting %lu bytes instead.\n", spl_hostid_path,
+		       size, (unsigned long)sizeof(HW_HOSTID_MASK));
 		kobj_close_file(file);
 		return -3;
 	}
@@ -490,10 +546,28 @@ hostid_exec(void)
 uint32_t
 zone_get_hostid(void *zone)
 {
+	static int first = 1;
 	unsigned long hostid;
+	int rc;
 
 	/* Only the global zone is supported */
 	ASSERT(zone == NULL);
+
+	if (first) {
+		first = 0;
+
+		/*
+		 * Get the hostid if it was not passed as a module parameter.
+		 * Try reading the /etc/hostid file directly, and then fall
+		 * back to calling the /usr/bin/hostid utility.
+		 */
+		if ((spl_hostid == HW_INVALID_HOSTID) &&
+		    (rc = hostid_read()) && (rc = hostid_exec()))
+			return HW_INVALID_HOSTID;
+
+		printk(KERN_NOTICE "SPL: using hostid 0x%08x\n",
+			(unsigned int) spl_hostid);
+	}
 
 	if (ddi_strtoul(hw_serial, NULL, HW_HOSTID_LEN-1, &hostid) != 0)
 		return HW_INVALID_HOSTID;
@@ -576,16 +650,6 @@ __init spl_init(void)
 	if ((rc = spl_zlib_init()))
 		SGOTO(out9, rc);
 
-	/*
-	 * Get the hostid if it was not passed as a module parameter. Try
-	 * reading the /etc/hostid file directly, and then fall back to calling
-	 * the /usr/bin/hostid utility.
-	 */
-
-	if (spl_hostid == HW_INVALID_HOSTID
-	  && (rc = hostid_read()) && (rc = hostid_exec()))
-		SGOTO(out10, rc = -EADDRNOTAVAIL);
-
 #ifndef HAVE_KALLSYMS_LOOKUP_NAME
 	if ((rc = set_kallsyms_lookup_name()))
 		SGOTO(out10, rc = -EADDRNOTAVAIL);
@@ -597,8 +661,8 @@ __init spl_init(void)
 	if ((rc = spl_vn_init_kallsyms_lookup()))
 		SGOTO(out10, rc);
 
-	printk(KERN_NOTICE "SPL: Loaded module v%s%s, using hostid 0x%08x\n",
-	       SPL_META_VERSION, SPL_DEBUG_STR, (unsigned int) spl_hostid);
+	printk(KERN_NOTICE "SPL: Loaded module v%s-%s%s\n", SPL_META_VERSION,
+	       SPL_META_RELEASE, SPL_DEBUG_STR);
 	SRETURN(rc);
 out10:
 	spl_zlib_fini();
@@ -621,8 +685,9 @@ out2:
 out1:
 	spl_debug_fini();
 
-	printk(KERN_NOTICE "SPL: Failed to Load Solaris Porting Layer v%s%s"
-	       ", rc = %d\n", SPL_META_VERSION, SPL_DEBUG_STR, rc);
+	printk(KERN_NOTICE "SPL: Failed to Load Solaris Porting Layer "
+	       "v%s-%s%s, rc = %d\n", SPL_META_VERSION, SPL_META_RELEASE,
+	       SPL_DEBUG_STR, rc);
 	return rc;
 }
 
@@ -631,8 +696,8 @@ spl_fini(void)
 {
 	SENTRY;
 
-	printk(KERN_NOTICE "SPL: Unloaded module v%s%s\n",
-	       SPL_META_VERSION, SPL_DEBUG_STR);
+	printk(KERN_NOTICE "SPL: Unloaded module v%s-%s%s\n",
+	       SPL_META_VERSION, SPL_META_RELEASE, SPL_DEBUG_STR);
 	spl_zlib_fini();
 	spl_tsd_fini();
 	spl_kstat_fini();

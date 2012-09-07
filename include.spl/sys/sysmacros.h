@@ -71,7 +71,7 @@
 #define DEV_BSHIFT			9 /* log2(DEV_BSIZE) */
 
 #define proc_pageout			NULL
-#define curproc				get_current()
+#define curproc				current
 #define max_ncpus			num_possible_cpus()
 #define CPU_SEQID			smp_processor_id()
 #define _NOTE(x)
@@ -136,7 +136,7 @@
 #define DTRACE_PROBE4(a, b, c, d, e, f, g, h, i)	((void)0)
 
 /* Missing globals */
-extern char spl_version[16];
+extern char spl_version[32];
 extern unsigned long spl_hostid;
 extern char hw_serial[11];
 
