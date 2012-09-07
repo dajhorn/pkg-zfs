@@ -5,7 +5,7 @@ EXTRA_CFLAGS += -include @abs_top_builddir@/zfs_config.h
 EXTRA_CFLAGS += -I@abs_top_srcdir@/include.spl
 EXTRA_CFLAGS += -I@abs_top_srcdir@/include
 
-obj-$(CONFIG_ZFS) := $(MODULE).o
+obj-m := $(MODULE).o
 
 $(MODULE)-objs += @top_srcdir@/module/zcommon/zfs_deleg.o
 $(MODULE)-objs += @top_srcdir@/module/zcommon/zfs_prop.o
