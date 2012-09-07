@@ -120,7 +120,9 @@ ddt_object_load(ddt_t *ddt, enum ddt_type type, enum ddt_class class)
 	/*
 	 * Seed the cached statistics.
 	 */
-	VERIFY(ddt_object_info(ddt, type, class, &doi) == 0);
+	error = ddt_object_info(ddt, type, class, &doi);
+	if (error)
+		return (error);
 
 	ddo->ddo_count = ddt_object_count(ddt, type, class);
 	ddo->ddo_dspace = doi.doi_physical_blocks_512 << 9;
@@ -502,7 +504,7 @@ ddt_get_dedup_stats(spa_t *spa, ddt_stat_t *dds_total)
 	ddt_histogram_t *ddh_total;
 
 	/* XXX: Move to a slab */
-	ddh_total = kmem_zalloc(sizeof (ddt_histogram_t), KM_SLEEP);
+	ddh_total = kmem_zalloc(sizeof (ddt_histogram_t), KM_PUSHPAGE);
 	ddt_get_dedup_histogram(spa, ddh_total);
 	ddt_histogram_stat(dds_total, ddh_total);
 	kmem_free(ddh_total, sizeof (ddt_histogram_t));

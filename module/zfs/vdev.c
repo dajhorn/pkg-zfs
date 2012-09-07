@@ -21,6 +21,8 @@
 
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright 2011 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright (c) 2011 by Delphix. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
@@ -193,7 +195,7 @@ vdev_add_child(vdev_t *pvd, vdev_t *cvd)
 	pvd->vdev_children = MAX(pvd->vdev_children, id + 1);
 	newsize = pvd->vdev_children * sizeof (vdev_t *);
 
-	newchild = kmem_zalloc(newsize, KM_SLEEP);
+	newchild = kmem_zalloc(newsize, KM_PUSHPAGE);
 	if (pvd->vdev_child != NULL) {
 		bcopy(pvd->vdev_child, newchild, oldsize);
 		kmem_free(pvd->vdev_child, oldsize);
@@ -263,7 +265,7 @@ vdev_compact_children(vdev_t *pvd)
 		if (pvd->vdev_child[c])
 			newc++;
 
-	newchild = kmem_alloc(newc * sizeof (vdev_t *), KM_SLEEP);
+	newchild = kmem_alloc(newc * sizeof (vdev_t *), KM_PUSHPAGE);
 
 	for (c = newc = 0; c < oldc; c++) {
 		if ((cvd = pvd->vdev_child[c]) != NULL) {
@@ -286,11 +288,12 @@ vdev_alloc_common(spa_t *spa, uint_t id, uint64_t guid, vdev_ops_t *ops)
 	vdev_t *vd;
 	int t;
 
-	vd = kmem_zalloc(sizeof (vdev_t), KM_SLEEP);
+	vd = kmem_zalloc(sizeof (vdev_t), KM_PUSHPAGE);
 
 	if (spa->spa_root_vdev == NULL) {
 		ASSERT(ops == &vdev_root_ops);
 		spa->spa_root_vdev = vd;
+		spa->spa_load_guid = spa_generate_guid(NULL);
 	}
 
 	if (guid == 0 && ops != &vdev_hole_ops) {
@@ -835,7 +838,7 @@ vdev_metaslab_init(vdev_t *vd, uint64_t txg)
 
 	ASSERT(oldc <= newc);
 
-	mspp = kmem_zalloc(newc * sizeof (*mspp), KM_SLEEP | KM_NODEBUG);
+	mspp = kmem_zalloc(newc * sizeof (*mspp), KM_PUSHPAGE | KM_NODEBUG);
 
 	if (oldc != 0) {
 		bcopy(vd->vdev_ms, mspp, oldc * sizeof (*mspp));
@@ -990,7 +993,7 @@ vdev_probe(vdev_t *vd, zio_t *zio)
 	mutex_enter(&vd->vdev_probe_lock);
 
 	if ((pio = vd->vdev_probe_zio) == NULL) {
-		vps = kmem_zalloc(sizeof (*vps), KM_SLEEP);
+		vps = kmem_zalloc(sizeof (*vps), KM_PUSHPAGE);
 
 		vps->vps_flags = ZIO_FLAG_CANFAIL | ZIO_FLAG_PROBE |
 		    ZIO_FLAG_DONT_CACHE | ZIO_FLAG_DONT_AGGREGATE |
@@ -1307,13 +1310,18 @@ vdev_open(vdev_t *vd)
  * contents.  This needs to be done before vdev_load() so that we don't
  * inadvertently do repair I/Os to the wrong device.
  *
+ * If 'strict' is false ignore the spa guid check. This is necessary because
+ * if the machine crashed during a re-guid the new guid might have been written
+ * to all of the vdev labels, but not the cached config. The strict check
+ * will be performed when the pool is opened again using the mos config.
+ *
  * This function will only return failure if one of the vdevs indicates that it
  * has since been destroyed or exported.  This is only possible if
  * /etc/zfs/zpool.cache was readonly at the time.  Otherwise, the vdev state
  * will be updated but the function will return 0.
  */
 int
-vdev_validate(vdev_t *vd)
+vdev_validate(vdev_t *vd, boolean_t strict)
 {
 	spa_t *spa = vd->vdev_spa;
 	nvlist_t *label;
@@ -1322,7 +1330,7 @@ vdev_validate(vdev_t *vd)
 	int c;
 
 	for (c = 0; c < vd->vdev_children; c++)
-		if (vdev_validate(vd->vdev_child[c]) != 0)
+		if (vdev_validate(vd->vdev_child[c], strict) != 0)
 			return (EBADF);
 
 	/*
@@ -1352,8 +1360,9 @@ vdev_validate(vdev_t *vd)
 			return (0);
 		}
 
-		if (nvlist_lookup_uint64(label, ZPOOL_CONFIG_POOL_GUID,
-		    &guid) != 0 || guid != spa_guid(spa)) {
+		if (strict && (nvlist_lookup_uint64(label,
+		    ZPOOL_CONFIG_POOL_GUID, &guid) != 0 ||
+		    guid != spa_guid(spa))) {
 			vdev_set_state(vd, B_FALSE, VDEV_STATE_CANT_OPEN,
 			    VDEV_AUX_CORRUPT_DATA);
 			nvlist_free(label);
@@ -1516,7 +1525,7 @@ vdev_reopen(vdev_t *vd)
 		    !l2arc_vdev_present(vd))
 			l2arc_add_vdev(spa, vd);
 	} else {
-		(void) vdev_validate(vd);
+		(void) vdev_validate(vd, B_TRUE);
 	}
 
 	/*

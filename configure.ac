@@ -64,6 +64,7 @@ AC_CONFIG_FILES([
 	etc/init.d/Makefile
 	etc/zfs/Makefile
 	man/Makefile
+	man/man5/Makefile
 	man/man8/Makefile
 	lib/Makefile
 	lib/libcommon/Makefile
@@ -92,13 +93,14 @@ AC_CONFIG_FILES([
 	cmd/zfs/Makefile
 	cmd/zinject/Makefile
 	cmd/zpool/Makefile
+	cmd/zstreamdump/Makefile
 	cmd/ztest/Makefile
 	cmd/zpios/Makefile
 	cmd/mount_zfs/Makefile
 	cmd/zpool_layout/Makefile
 	cmd/zvol_id/Makefile
 	cmd/zpool_id/Makefile
-	cmd/sas_switch_id/Makefile
+	cmd/vdev_id/Makefile
 	cmd/spl/Makefile
 	cmd/splat/Makefile
 	module/Makefile
@@ -127,6 +129,8 @@ AC_CONFIG_FILES([
 	PKGBUILD-zfs
 	PKGBUILD-zfs-modules
 	zfs-script-config.sh
+	zfs.release
+	dkms.conf
 ])
 
 AC_OUTPUT

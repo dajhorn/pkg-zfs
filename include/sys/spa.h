@@ -21,6 +21,7 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2011 by Delphix. All rights reserved.
+ * Copyright 2011 Nexenta Systems, Inc.  All rights reserved.
  */
 
 #ifndef _SYS_SPA_H
@@ -579,6 +580,7 @@ extern void spa_altroot(spa_t *, char *, size_t);
 extern int spa_sync_pass(spa_t *spa);
 extern char *spa_name(spa_t *spa);
 extern uint64_t spa_guid(spa_t *spa);
+extern uint64_t spa_load_guid(spa_t *spa);
 extern uint64_t spa_last_synced_txg(spa_t *spa);
 extern uint64_t spa_first_txg(spa_t *spa);
 extern uint64_t spa_syncing_txg(spa_t *spa);
@@ -612,6 +614,7 @@ extern uint64_t spa_get_random(uint64_t range);
 extern uint64_t spa_generate_guid(spa_t *spa);
 extern void sprintf_blkptr(char *buf, const blkptr_t *bp);
 extern void spa_freeze(spa_t *spa);
+extern int spa_change_guid(spa_t *spa);
 extern void spa_upgrade(spa_t *spa, uint64_t version);
 extern void spa_evict_all(void);
 extern vdev_t *spa_lookup_by_guid(spa_t *spa, uint64_t guid,
@@ -687,12 +690,12 @@ extern void spa_configfile_set(spa_t *, nvlist_t *, boolean_t);
 extern void spa_event_notify(spa_t *spa, vdev_t *vdev, const char *name);
 
 #ifdef ZFS_DEBUG
-#define	dprintf_bp(bp, fmt, ...) do {				\
-	if (zfs_flags & ZFS_DEBUG_DPRINTF) { 			\
-	char *__blkbuf = kmem_alloc(BP_SPRINTF_LEN, KM_SLEEP);	\
-	sprintf_blkptr(__blkbuf, (bp));				\
-	dprintf(fmt " %s\n", __VA_ARGS__, __blkbuf);		\
-	kmem_free(__blkbuf, BP_SPRINTF_LEN);			\
+#define	dprintf_bp(bp, fmt, ...) do {					\
+	if (zfs_flags & ZFS_DEBUG_DPRINTF) {				\
+	char *__blkbuf = kmem_alloc(BP_SPRINTF_LEN, KM_PUSHPAGE);	\
+	sprintf_blkptr(__blkbuf, (bp));					\
+	dprintf(fmt " %s\n", __VA_ARGS__, __blkbuf);			\
+	kmem_free(__blkbuf, BP_SPRINTF_LEN);				\
 	} \
 _NOTE(CONSTCOND) } while (0)
 #else

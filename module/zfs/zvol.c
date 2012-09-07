@@ -46,8 +46,10 @@
 #include <sys/zvol.h>
 #include <linux/blkdev_compat.h>
 
+unsigned int zvol_inhibit_dev = 0;
 unsigned int zvol_major = ZVOL_MAJOR;
 unsigned int zvol_threads = 32;
+unsigned long zvol_max_discard_blocks = 16384;
 
 static taskq_t *zvol_taskq;
 static kmutex_t zvol_state_lock;
@@ -459,11 +461,15 @@ zvol_log_write(zvol_state_t *zv, dmu_tx_t *tx,
 	uint32_t blocksize = zv->zv_volblocksize;
 	zilog_t *zilog = zv->zv_zilog;
 	boolean_t slogging;
+	ssize_t immediate_write_sz;
 
 	if (zil_replaying(zilog, tx))
 		return;
 
-	slogging = spa_has_slogs(zilog->zl_spa);
+	immediate_write_sz = (zilog->zl_logbias == ZFS_LOGBIAS_THROUGHPUT)
+		? 0 : zvol_immediate_write_sz;
+	slogging = spa_has_slogs(zilog->zl_spa) &&
+		(zilog->zl_logbias == ZFS_LOGBIAS_LATENCY);
 
 	while (size) {
 		itx_t *itx;
@@ -475,7 +481,7 @@ zvol_log_write(zvol_state_t *zv, dmu_tx_t *tx,
 		 * Unlike zfs_log_write() we can be called with
 		 * up to DMU_MAX_ACCESS/2 (5MB) writes.
 		 */
-		if (blocksize > zvol_immediate_write_sz && !slogging &&
+		if (blocksize > immediate_write_sz && !slogging &&
 		    size >= blocksize && offset % blocksize == 0) {
 			write_state = WR_INDIRECT; /* uses dmu_sync */
 			len = blocksize;
@@ -534,6 +540,14 @@ zvol_write(void *arg)
 	dmu_tx_t *tx;
 	rl_t *rl;
 
+	/*
+	 * Annotate this call path with a flag that indicates that it is
+	 * unsafe to use KM_SLEEP during memory allocations due to the
+	 * potential for a deadlock.  KM_PUSHPAGE should be used instead.
+	 */
+	ASSERT(!(current->flags & PF_NOFS));
+	current->flags |= PF_NOFS;
+
 	if (req->cmd_flags & VDEV_REQ_FLUSH)
 		zil_commit(zv->zv_zilog, ZVOL_OBJ);
 
@@ -542,7 +556,7 @@ zvol_write(void *arg)
 	 */
 	if (size == 0) {
 		blk_end_request(req, 0, size);
-		return;
+		goto out;
 	}
 
 	rl = zfs_range_lock(&zv->zv_znode, offset, size, RL_WRITER);
@@ -556,7 +570,7 @@ zvol_write(void *arg)
 		dmu_tx_abort(tx);
 		zfs_range_unlock(rl);
 		blk_end_request(req, -error, size);
-		return;
+		goto out;
 	}
 
 	error = dmu_write_req(zv->zv_objset, ZVOL_OBJ, req, tx);
@@ -572,6 +586,8 @@ zvol_write(void *arg)
 		zil_commit(zv->zv_zilog, ZVOL_OBJ);
 
 	blk_end_request(req, -error, size);
+out:
+	current->flags &= ~PF_NOFS;
 }
 
 #ifdef HAVE_BLK_QUEUE_DISCARD
@@ -586,14 +602,22 @@ zvol_discard(void *arg)
 	int error;
 	rl_t *rl;
 
+	/*
+	 * Annotate this call path with a flag that indicates that it is
+	 * unsafe to use KM_SLEEP during memory allocations due to the
+	 * potential for a deadlock.  KM_PUSHPAGE should be used instead.
+	 */
+	ASSERT(!(current->flags & PF_NOFS));
+	current->flags |= PF_NOFS;
+
 	if (offset + size > zv->zv_volsize) {
 		blk_end_request(req, -EIO, size);
-		return;
+		goto out;
 	}
 
 	if (size == 0) {
 		blk_end_request(req, 0, size);
-		return;
+		goto out;
 	}
 
 	rl = zfs_range_lock(&zv->zv_znode, offset, size, RL_WRITER);
@@ -607,6 +631,8 @@ zvol_discard(void *arg)
 	zfs_range_unlock(rl);
 
 	blk_end_request(req, -error, size);
+out:
+	current->flags &= ~PF_NOFS;
 }
 #endif /* HAVE_BLK_QUEUE_DISCARD */
 
@@ -759,7 +785,7 @@ zvol_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 	ASSERT(zio != NULL);
 	ASSERT(size != 0);
 
-	zgd = (zgd_t *)kmem_zalloc(sizeof (zgd_t), KM_SLEEP);
+	zgd = (zgd_t *)kmem_zalloc(sizeof (zgd_t), KM_PUSHPAGE);
 	zgd->zgd_zilog = zv->zv_zilog;
 	zgd->zgd_rl = zfs_range_lock(&zv->zv_znode, offset, size, RL_READER);
 
@@ -1237,7 +1263,9 @@ __zvol_create_minor(const char *name)
 	blk_queue_physical_block_size(zv->zv_queue, zv->zv_volblocksize);
 	blk_queue_io_opt(zv->zv_queue, zv->zv_volblocksize);
 #ifdef HAVE_BLK_QUEUE_DISCARD
-	blk_queue_max_discard_sectors(zv->zv_queue, UINT_MAX);
+	blk_queue_max_discard_sectors(zv->zv_queue,
+	    (zvol_max_discard_blocks * zv->zv_volblocksize) >> 9);
+	blk_queue_discard_granularity(zv->zv_queue, zv->zv_volblocksize);
 	queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, zv->zv_queue);
 #endif
 #ifdef HAVE_BLK_QUEUE_NONROT
@@ -1337,6 +1365,9 @@ zvol_create_minors(const char *pool)
 	spa_t *spa = NULL;
 	int error = 0;
 
+	if (zvol_inhibit_dev)
+		return (0);
+
 	mutex_enter(&zvol_state_lock);
 	if (pool) {
 		error = dmu_objset_find_spa(NULL, pool, zvol_create_minors_cb,
@@ -1365,6 +1396,9 @@ zvol_remove_minors(const char *pool)
 {
 	zvol_state_t *zv, *zv_next;
 	char *str;
+
+	if (zvol_inhibit_dev)
+		return;
 
 	str = kmem_zalloc(MAXNAMELEN, KM_SLEEP);
 	if (pool) {
@@ -1427,8 +1461,14 @@ zvol_fini(void)
 	list_destroy(&zvol_state_list);
 }
 
+module_param(zvol_inhibit_dev, uint, 0644);
+MODULE_PARM_DESC(zvol_inhibit_dev, "Do not create zvol device nodes");
+
 module_param(zvol_major, uint, 0444);
 MODULE_PARM_DESC(zvol_major, "Major number for zvol device");
 
 module_param(zvol_threads, uint, 0444);
 MODULE_PARM_DESC(zvol_threads, "Number of threads for zvol device");
+
+module_param(zvol_max_discard_blocks, ulong, 0444);
+MODULE_PARM_DESC(zvol_max_discard_blocks, "Max number of blocks to discard at once");

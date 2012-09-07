@@ -584,7 +584,7 @@ zfs_sb_create(const char *osname, zfs_sb_t **zsbp)
 	int i, error;
 	uint64_t sa_obj;
 
-	zsb = kmem_zalloc(sizeof (zfs_sb_t), KM_SLEEP);
+	zsb = kmem_zalloc(sizeof (zfs_sb_t), KM_SLEEP | KM_NODEBUG);
 
 	/*
 	 * We claim to always be readonly so we can open snapshots;
@@ -920,6 +920,7 @@ zfs_statvfs(struct dentry *dentry, struct kstatfs *statp)
 {
 	zfs_sb_t *zsb = dentry->d_sb->s_fs_info;
 	uint64_t refdbytes, availbytes, usedobjs, availobjs;
+	uint64_t fsid;
 	uint32_t bshift;
 
 	ZFS_ENTER(zsb);
@@ -927,6 +928,7 @@ zfs_statvfs(struct dentry *dentry, struct kstatfs *statp)
 	dmu_objset_space(zsb->z_os,
 	    &refdbytes, &availbytes, &usedobjs, &availobjs);
 
+	fsid = dmu_objset_fsid_guid(zsb->z_os);
 	/*
 	 * The underlying storage pool actually uses multiple block
 	 * size.  Under Solaris frsize (fragment size) is reported as
@@ -960,8 +962,8 @@ zfs_statvfs(struct dentry *dentry, struct kstatfs *statp)
 	 */
 	statp->f_ffree = MIN(availobjs, availbytes >> DNODE_SHIFT);
 	statp->f_files = statp->f_ffree + usedobjs;
-	statp->f_fsid.val[0] = dentry->d_sb->s_dev;
-	statp->f_fsid.val[1] = 0;
+	statp->f_fsid.val[0] = (uint32_t)fsid;
+	statp->f_fsid.val[1] = (uint32_t)(fsid >> 32);
 	statp->f_type = ZFS_SUPER_MAGIC;
 	statp->f_namelen = ZFS_MAXNAMELEN;
 
@@ -1200,7 +1202,7 @@ zfs_domount(struct super_block *sb, void *data, int silent)
 	}
 
 	/* Allocate a root dentry for the filesystem */
-	sb->s_root = d_alloc_root(root_inode);
+	sb->s_root = d_make_root(root_inode);
 	if (sb->s_root == NULL) {
 		(void) zfs_umount(sb);
 		error = ENOMEM;
